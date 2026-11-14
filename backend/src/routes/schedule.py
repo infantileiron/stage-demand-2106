@@ -14,5 +14,8 @@ def create(body:ScheduleCreate,user=Depends(administrator)):return controller.cr
 @router.post("/{ident}/toggle")
 def toggle(ident:int,body:ScheduleToggle,user=Depends(administrator)):return controller.toggle(ident,body)
 
+@router.post("/{ident}/catch-up")
+def catch_up(ident:int,user=Depends(administrator)):return controller.catch_up(ident)
+
 @router.get("/{ident}/deliveries/{business_date}/download")
 def download(ident:int,business_date:date,user=Depends(current_user)):return controller.download(ident,business_date.isoformat())

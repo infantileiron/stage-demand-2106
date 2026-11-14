@@ -8,4 +8,7 @@ export interface Run { id:number;scenario_id:number;status:'queued'|'running'|'c
 export interface Plan { id:number;name:string;run_id:number;venue:string;days:ForecastDay[];status:'draft'|'approved';approved_by:string|null }
 export interface Report { id:number;title:string;plan_id:number;venue:string;days:ForecastDay[];status:string }
 
-export interface DeliverySchedule { id:number;name:string;source_report_id:number|null;daily_time:string;enabled:boolean;next_run:string;last_run:string|null;last_error:string|null;deliveries:{id:number;business_date:string;delivered_at:string;row_count:number}[] }
+export interface DeliverySource { id:number;title:string;venue:string;known_at:string }
+export interface DeliveryItem { id:number;business_date:string;delivered_at:string;row_count:number;cutoff_at:string|null;sources:DeliverySource[] }
+export interface DeliveryProgress { last_delivered_date:string|null;next_due_date:string;delivered_count:number;blocked_date:string|null;blocked_reason:string|null;last_error:string|null }
+export interface DeliverySchedule { id:number;name:string;source_report_id:number|null;daily_time:string;enabled:boolean;next_run:string;last_run:string|null;last_error:string|null;last_business_date?:string|null;blocked_date?:string|null;blocked_reason?:string|null;blocked_at?:string|null;deliveries:DeliveryItem[];progress:DeliveryProgress }

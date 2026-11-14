@@ -58,16 +58,52 @@ def get_row(table, ident):
         raise HTTPException(404, "记录不存在")
     return unpack(row)
 
-def insert_row(table, key, payload, preserve=False):
+def find_by_key(table, key):
+    """Return the document with this natural key, or None."""
     assert table in TABLES
     with connection() as db:
-        old = execute(db, f"SELECT * FROM {table} WHERE natural_key = ?", (key,)).fetchone()
-        if old:
-            if preserve: return unpack(old)
+        row = execute(db, f"SELECT * FROM {table} WHERE natural_key = ?", (key,)).fetchone()
+    return unpack(row) if row else None
+
+def insert_if_absent(table, key, payload):
+    """Atomically insert a natural-keyed document. Returns (row, created).
+
+    A concurrent writer that wins the unique key is returned unchanged;
+    the existing payload is never overwritten.
+    """
+    assert table in TABLES
+    serialized = json.dumps(payload, ensure_ascii=False, allow_nan=False)
+    with connection() as db:
+        try:
+            execute(db, f"INSERT INTO {table}(natural_key,payload,created_at) VALUES (?,?,?)",
+                (key, serialized, datetime.now(timezone.utc).isoformat()))
+            created = True
+        except Exception as exc:
+            if type(exc).__name__ != "IntegrityError":
+                raise
+            created = False
+        row = execute(db, f"SELECT * FROM {table} WHERE natural_key = ?", (key,)).fetchone()
+    if row is None:
+        raise RuntimeError("记录写入后无法读取")
+    return unpack(row), created
+
+def insert_row(table, key, payload, preserve=False):
+    assert table in TABLES
+    if preserve:
+        row, _ = insert_if_absent(table, key, payload)
+        return row
+    if find_by_key(table, key) is not None:
+        from fastapi import HTTPException
+        raise HTTPException(409, "名称已存在，请使用新名称")
+    with connection() as db:
+        try:
+            cur = execute(db, f"INSERT INTO {table}(natural_key,payload,created_at) VALUES (?,?,?)",
+                (key, json.dumps(payload, ensure_ascii=False, allow_nan=False), datetime.now(timezone.utc).isoformat()))
+        except Exception as exc:
+            # A concurrent insert may win the unique key between the check and this write.
+            if type(exc).__name__ != "IntegrityError": raise
             from fastapi import HTTPException
-            raise HTTPException(409, "名称已存在，请使用新名称")
-        cur = execute(db, f"INSERT INTO {table}(natural_key,payload,created_at) VALUES (?,?,?)",
-            (key, json.dumps(payload, ensure_ascii=False, allow_nan=False), datetime.now(timezone.utc).isoformat()))
+            raise HTTPException(409, "名称已存在，请使用新名称") from exc
         ident = cur.lastrowid
     return get_row(table, ident)
 
@@ -83,3 +119,31 @@ def update_row(table, ident, changes):
         value.update(changes)
         execute(db, f"UPDATE {table} SET payload=? WHERE id=?", (json.dumps(value, ensure_ascii=False, allow_nan=False), ident))
     return get_row(table, ident)
+
+def update_row_locked(table, ident, mutate):
+    """Read-modify-write one row while holding a row lock.
+
+    ``mutate`` receives the decoded payload and returns the changes to apply; an
+    empty dict means another writer already made the same transition. SQLite
+    takes a write lock up front (BEGIN IMMEDIATE) and MySQL locks the row with
+    SELECT ... FOR UPDATE, so parallel catch-up runs cannot clobber progress.
+    """
+    assert table in TABLES
+    with connection() as db:
+        if isinstance(db, sqlite3.Connection):
+            execute(db, "BEGIN IMMEDIATE")
+            row = execute(db, f"SELECT * FROM {table} WHERE id = ?", (ident,)).fetchone()
+        else:
+            execute(db, "START TRANSACTION")
+            row = execute(db, f"SELECT * FROM {table} WHERE id = ? FOR UPDATE", (ident,)).fetchone()
+        if row is None:
+            from fastapi import HTTPException
+            raise HTTPException(404, "记录不存在")
+        value = json.loads(row["payload"])
+        changes = mutate(dict(value)) or {}
+        if changes:
+            value.update(changes)
+            execute(db, f"UPDATE {table} SET payload=? WHERE id=?",
+                (json.dumps(value, ensure_ascii=False, allow_nan=False), ident))
+            row = execute(db, f"SELECT * FROM {table} WHERE id = ?", (ident,)).fetchone()
+    return unpack(row)

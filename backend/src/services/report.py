@@ -1,5 +1,6 @@
 import csv
 import io
+from datetime import datetime, timezone
 from fastapi import HTTPException
 from src.models.report import Report
 from src.utils.database import list_rows,get_row,insert_row
@@ -9,7 +10,8 @@ def list_reports(): return list_rows(Report.table)
 def create(body):
     plan=get_row("plans",body.plan_id)
     if plan["status"]!="approved": raise HTTPException(409,"请管理员先审批排班建议")
-    return insert_row(Report.table,body.title,Report(title=body.title,plan_id=plan["id"],venue=plan["venue"],days=plan["days"],status="approved").payload())
+    return insert_row(Report.table,body.title,Report(title=body.title,plan_id=plan["id"],venue=plan["venue"],
+        days=plan["days"],status="approved",approved_at=datetime.now(timezone.utc).isoformat()).payload())
 
 def export(ident):
     report=get_row(Report.table,ident)

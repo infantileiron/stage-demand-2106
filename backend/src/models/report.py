@@ -10,6 +10,7 @@ class Report:
     venue: str
     days: list[dict]
     status: str
+    approved_at: str | None = None
 
     def payload(self):
         return asdict(self)

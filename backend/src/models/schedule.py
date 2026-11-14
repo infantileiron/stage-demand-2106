@@ -11,5 +11,9 @@ class DeliverySchedule:
     next_run: str
     last_run: str | None = None
     last_error: str | None = None
+    last_business_date: str | None = None
+    blocked_date: str | None = None
+    blocked_reason: str | None = None
+    blocked_at: str | None = None
 
     def payload(self): return asdict(self)
